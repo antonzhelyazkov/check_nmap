@@ -14,7 +14,7 @@ class HostPorts(db_mysql.Model):
     host_id = db_mysql.Column(db_mysql.Integer)
 
 
-class HPBridge(db_mysql.Model):
+class ScanResults(db_mysql.Model):
     __tablename__ = 'scan_result'
     id = db_mysql.Column(db_mysql.Integer, primary_key=True, autoincrement=True)
     host_id = db_mysql.Column(db_mysql.Integer)
