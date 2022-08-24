@@ -1,3 +1,4 @@
+import json
 from multiprocessing.dummy import Pool as ThreadPool
 from flask import Blueprint, abort
 from .import app, db_mysql
@@ -9,6 +10,7 @@ import os
 import subprocess
 import threading
 import datetime
+import numpy
 
 
 procs = Blueprint('procs', __name__)
@@ -90,15 +92,31 @@ def check_host(ip_addr):
 
     get_ports_open_qry = select(ScanResults.port).where(ScanResults.scantime>select_time, ScanResults.host_id==host_id)
     get_ports_open = db_mysql.session.execute(get_ports_open_qry)
-    ports_open = [i[0] for i in get_ports_open]
+    ports_open = numpy.array([int(i[0]) for i in get_ports_open])
 
     get_ports_qry = select(HostPorts.port).where(HostPorts.host_id==host_id)
     get_ports = db_mysql.session.execute(get_ports_qry)
-    ports = [i[0] for i in get_ports]
+    ports_fixed = numpy.array([int(i[0]) for i in get_ports])
     
     db_mysql.session.close()
-    print(ports_open, ports)
-    return "OK", 200
+
+    if numpy.array_equal(ports_open,ports_fixed):
+        return {"status": True, "open_miss": None, "open_add": None}
+    else:
+        class NumpyArrayEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, numpy.ndarray):
+                    return obj.tolist()
+                return json.JSONEncoder.default(self, obj)
+
+        diff1 = numpy.setdiff1d(ports_fixed,ports_open)
+        diff2 = numpy.setdiff1d(ports_open,ports_fixed)
+
+        encoded_diff1 = json.dumps(diff1, cls=NumpyArrayEncoder)
+        encoded_diff2 = json.dumps(diff2, cls=NumpyArrayEncoder)
+
+        return {"status": False, "open_miss": encoded_diff1, "open_add": encoded_diff2}
+
 
 def insert_ports(host, port):
     with app.app_context():
