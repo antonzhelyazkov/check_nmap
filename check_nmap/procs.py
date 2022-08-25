@@ -4,6 +4,7 @@ from flask import Blueprint, abort
 from .import app, db_mysql
 from .models import HostPorts, Hosts, ScanResults
 from sqlalchemy import select, insert
+import sqlalchemy
 import xml.etree.ElementTree as ET
 import ipaddress 
 import os
@@ -52,9 +53,11 @@ def start_pool(addresses):
 def scan_host(ip_addr):
     app.logger.info(f"INFO start scannig {ip_addr}")
     ip_string = int(ipaddress.ip_address(ip_addr))
-    check_ip_qry = select(Hosts).where(Hosts.ip==ip_string)
-    check_ip = db_mysql.session.execute(check_ip_qry).scalar()
-    db_mysql.session.close()
+    with app.app_context():
+        check_ip_qry = select(Hosts).where(Hosts.ip==ip_string)
+        check_ip = db_mysql.session.execute(check_ip_qry).scalar()
+        db_mysql.session.close()
+
     if check_ip is None:
         msg = f"ERROR ip {ip_addr} not found in hosts table"
         app.logger.info(msg)
@@ -65,11 +68,14 @@ def scan_host(ip_addr):
     if err is not None:
         app.logger.info(f"ERROR subprocess {err}")
 
+    #print(output)
     root = ET.fromstring(output.decode())
-    
-    for elem in root.findall("./host/ports/port"):
-        port = elem.attrib['portid']
-        insert_ports(ip_addr, int(port))
+    if len(root.findall("./host/ports/port")) == 0:
+        insert_ports(ip_addr, 0)
+    else:
+        for elem in root.findall("./host/ports/port"):
+            port = elem.attrib['portid']
+            insert_ports(ip_addr, int(port))
 
     app.logger.info(f"INFO finish scannig {ip_addr}")
     return "OK", 200
@@ -79,10 +85,16 @@ def scan_host(ip_addr):
 def check_host(ip_addr):
     app.logger.info(f"INFO check_host {ip_addr}")
     ip_string = int(ipaddress.ip_address(ip_addr))
-    check_time_qry = select(ScanResults.host_id, ScanResults.scantime).filter(Hosts.id==ScanResults.host_id, Hosts.ip==ip_string).order_by(ScanResults.scantime.desc()).limit(1)
-    check_time = db_mysql.session.execute(check_time_qry).one()
-    if check_time is None:
-        msg = f"ERROR ip {ip_addr} not found in hosts table"
+    try:
+        check_time_qry = select(ScanResults.host_id, ScanResults.scantime).filter(Hosts.id==ScanResults.host_id, Hosts.ip==ip_string).order_by(ScanResults.scantime.desc()).limit(1)
+        check_time = db_mysql.session.execute(check_time_qry).one()
+        if check_time is None:
+            msg = f"ERROR ip {ip_addr} not found in hosts table"
+            app.logger.info(msg)
+            abort(404, msg)
+        db_mysql.session.close()
+    except sqlalchemy.exc.NoResultFound as err_result:
+        msg = f"ERROR no results found for {ip_addr} {err_result}"
         app.logger.info(msg)
         abort(404, msg)
 
