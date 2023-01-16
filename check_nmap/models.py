@@ -1,14 +1,14 @@
 from . import db_mysql
 
 
-class Hosts(db_mysql.Model):
-    __tablename__ = 'hosts'
+class HostsIPV4(db_mysql.Model):
+    __tablename__ = 'hosts_ipv4'
     id = db_mysql.Column(db_mysql.Integer, primary_key=True, autoincrement=True)
-    ip = db_mysql.Column(db_mysql.VARBINARY(16))
+    ip = db_mysql.Column(db_mysql.Integer)
 
 
-class HostPorts(db_mysql.Model):
-    __tablename__ = 'host_ports'
+class HostPortsIPV4(db_mysql.Model):
+    __tablename__ = 'host_ports_ipv4'
     id = db_mysql.Column(db_mysql.Integer, primary_key=True, autoincrement=True)
     port = db_mysql.Column(db_mysql.Integer)
     host_id = db_mysql.Column(db_mysql.Integer)

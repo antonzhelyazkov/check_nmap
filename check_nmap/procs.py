@@ -1,9 +1,9 @@
 import json
 from multiprocessing.dummy import Pool as ThreadPool
-from flask import Blueprint, abort
+from flask import Blueprint, abort, request
 from .import app, db_mysql
-from .models import HostPorts, Hosts, ScanResults
-from sqlalchemy import select, insert
+from .models import HostPortsIPV4, HostsIPV4, ScanResults
+from sqlalchemy import select
 import sqlalchemy
 import xml.etree.ElementTree as ET
 import ipaddress 
@@ -24,7 +24,7 @@ def start():
         app.logger.info(f"nmap binary not found {nmap_bin}")
         abort(500, f"nmap binary not found {nmap_bin}")
 
-    get_hosts_qry = select(Hosts.ip, Hosts.id)
+    get_hosts_qry = select(HostsIPV4.ip, HostsIPV4.id)
     hosts = db_mysql.session.execute(get_hosts_qry)
 
     addresses = []
@@ -54,7 +54,7 @@ def scan_host(ip_addr):
     app.logger.info(f"INFO start scannig {ip_addr}")
     ip_string = int(ipaddress.ip_address(ip_addr))
     with app.app_context():
-        check_ip_qry = select(Hosts).where(Hosts.ip==ip_string)
+        check_ip_qry = select(HostsIPV4).where(HostsIPV4.ip==ip_string)
         check_ip = db_mysql.session.execute(check_ip_qry).scalar()
         db_mysql.session.close()
 
@@ -86,7 +86,7 @@ def check_host(ip_addr):
     app.logger.info(f"INFO check_host {ip_addr}")
     ip_string = int(ipaddress.ip_address(ip_addr))
     try:
-        check_time_qry = select(ScanResults.host_id, ScanResults.scantime).filter(Hosts.id==ScanResults.host_id, Hosts.ip==ip_string).order_by(ScanResults.scantime.desc()).limit(1)
+        check_time_qry = select(ScanResults.host_id, ScanResults.scantime).filter(HostsIPV4.id==ScanResults.host_id, HostsIPV4.ip==ip_string).order_by(ScanResults.scantime.desc()).limit(1)
         check_time = db_mysql.session.execute(check_time_qry).one()
         if check_time is None:
             msg = f"ERROR ip {ip_addr} not found in hosts table"
@@ -106,7 +106,7 @@ def check_host(ip_addr):
     get_ports_open = db_mysql.session.execute(get_ports_open_qry)
     ports_open = numpy.array([int(i[0]) for i in get_ports_open])
 
-    get_ports_qry = select(HostPorts.port).where(HostPorts.host_id==host_id)
+    get_ports_qry = select(HostPortsIPV4.port).where(HostPortsIPV4.host_id==host_id)
     get_ports = db_mysql.session.execute(get_ports_qry)
     ports_fixed = numpy.array([int(i[0]) for i in get_ports])
     
@@ -130,10 +130,41 @@ def check_host(ip_addr):
         return {"status": False, "open_miss": encoded_diff1, "open_add": encoded_diff2}
 
 
-def insert_ports(host, port):
+@procs.route('/insert_host/<string:ip_addr>', methods=['POST'])
+def insert_host(ip_addr):
+    ports = request.get_json()
+    if not isinstance(ports, list):
+        msg = f"ERROR payload must be list your payload is {type(ports)}"
+        app.logger.info(msg)
+        abort(500, msg)
+
+    if not all(isinstance(x, int) for x in ports):
+        msg = f"ERROR all values must be int {ports}"
+        app.logger.info(msg)
+        abort(500, msg)
+    
+    try:
+        ipaddress.ip_address(ip_addr)
+    except ValueError as ve:
+        msg = f"ERROR invelid ip address {ip_addr} {ve}"
+        app.logger.info(msg)
+        abort(500, msg)
+
+    ip_string = int(ipaddress.ip_address(ip_addr))
+    print(ip_addr, ports, ip_string)
     with app.app_context():
-        ip_string = int(ipaddress.ip_address(host))
-        get_host_id = select(Hosts.id).where(Hosts.ip==ip_string)
+        insert_in_hosts = db_mysql.insert(HostsIPV4).values(id=None, ip=ip_string)
+        db_mysql.session.execute(insert_in_hosts)
+        db_mysql.session.commit()
+        db_mysql.session.close()
+
+    return {'status': True}, 200
+
+
+def insert_ports(host, port):
+    ip_string = int(ipaddress.ip_address(host))
+    with app.app_context():
+        get_host_id = select(HostsIPV4.id).where(HostsIPV4.ip==ip_string)
         host_id = db_mysql.session.execute(get_host_id).scalar()
         insert_port = db_mysql.insert(ScanResults).values(host_id=int(host_id), port=int(port), id=None, scantime=None, status=None)
         db_mysql.session.execute(insert_port)
